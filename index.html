@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>C2C Beauty · RM Performance Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-mark">S</span>
+      <div class="brand-text">
+        <strong>C2C Beauty</strong>
+        <small>RM Performance</small>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <button class="nav-item active" data-tab="overall">
+        <span class="nav-ico">◆</span> Overall Performance
+      </button>
+      <button class="nav-item" data-tab="seller">
+        <span class="nav-ico">◆</span> Seller Performance
+      </button>
+      <button class="nav-item" data-tab="msp">
+        <span class="nav-ico">◆</span> MSP Performance
+      </button>
+    </nav>
+
+    <div class="sidebar-foot">
+      <div class="sync-status" id="syncStatus">
+        <span class="dot dot-pending"></span>
+        <span id="syncStatusText">Đang tải dữ liệu…</span>
+      </div>
+      <button class="btn-refresh" id="refreshBtn">↻ Sync lại</button>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <header class="topbar">
+      <div class="topbar-title">
+        <h1 id="pageTitle">Overall Performance</h1>
+        <p id="pageSubtitle" class="muted">Snapshot MTD toàn ngành hàng Beauty · C2C</p>
+      </div>
+      <div class="topbar-controls">
+        <label class="field">
+          <span>Kỳ báo cáo</span>
+          <select id="periodSelect"></select>
+        </label>
+        <label class="field">
+          <span>RM</span>
+          <select id="rmSelect"><option value="all">Tất cả</option></select>
+        </label>
+      </div>
+    </header>
+
+    <!-- ===================== TAB 1: OVERALL PERFORMANCE ===================== -->
+    <section class="tab-panel active" id="tab-overall">
+
+      <div class="section-block">
+        <div class="section-head">
+          <h2>5 chỉ số cốt lõi — MTD</h2>
+          <span class="muted small" id="mtdRangeLabel">—</span>
+        </div>
+        <div class="metric-grid" id="metricGrid">
+          <!-- metric cards injected by js -->
+        </div>
+      </div>
+
+      <div class="section-block">
+        <div class="section-head">
+          <h2>Top 10 Risky — By KPI &amp; Seller</h2>
+          <span class="muted small">Target cao nhất, RM-KPI score thấp nhất (thang điểm 3Q26 unified framework)</span>
+        </div>
+        <div class="card table-card">
+          <table class="data-table" id="riskySellerTable">
+            <thead>
+              <tr>
+                <th>#</th><th>Seller</th><th>RM</th><th>Segment</th>
+                <th>AD.GMV target</th><th>KPI Score</th><th>Điểm yếu nhất</th><th>AI Suggestion</th>
+              </tr>
+            </thead>
+            <tbody><tr><td colspan="8" class="empty-row">Chờ kết nối raw_seller_performance + raw_target personal</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="section-block">
+        <div class="section-head">
+          <h2>Top 10 Risky — By Metric / Program</h2>
+          <span class="muted small">Performance M-1 cao nhất nhưng đang drop MoM</span>
+        </div>
+        <div class="metric-tabs" id="metricRiskTabs">
+          <button class="chip active" data-metric="adg">ADG</button>
+          <button class="chip" data-metric="winning_ado">Winning SKU ADO</button>
+          <button class="chip" data-metric="content_ado">Content ADO</button>
+          <button class="chip" data-metric="offsite">Offsite expense</button>
+          <button class="chip" data-metric="ads_expense">Ads expense</button>
+        </div>
+        <div class="card table-card">
+          <table class="data-table" id="riskyMetricTable">
+            <thead>
+              <tr><th>#</th><th>Seller</th><th>RM</th><th>M-1</th><th>MTD</th><th>Δ MoM</th><th>Δ MoM %</th><th>AI Suggestion</th></tr>
+            </thead>
+            <tbody><tr><td colspan="8" class="empty-row">Chờ kết nối raw_seller_performance (M0 vs M-1)</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="section-block">
+        <div class="section-head"><h2>Top 10 Risky — By Model / Item</h2></div>
+        <div class="risky-grid">
+          <div class="card table-card">
+            <h3>OOS Alert (stock ≤ 10)</h3>
+            <table class="data-table compact" id="oosTable">
+              <thead><tr><th>Model</th><th>Seller</th><th>ADG M-1</th><th>Stock</th></tr></thead>
+              <tbody><tr><td colspan="4" class="empty-row">Chờ raw_model performance + inventory</td></tr></tbody>
+            </table>
+          </div>
+          <div class="card table-card">
+            <h3>Shop Traffic Alert</h3>
+            <table class="data-table compact" id="shopTrafficTable">
+              <thead><tr><th>Shop</th><th>DUV M-1</th><th>Δ MoM %</th></tr></thead>
+              <tbody><tr><td colspan="3" class="empty-row">Chờ raw_item performance (daily_unique_view_users)</td></tr></tbody>
+            </table>
+          </div>
+          <div class="card table-card">
+            <h3>SKU Traffic Alert</h3>
+            <table class="data-table compact" id="skuTrafficTable">
+              <thead><tr><th>SKU</th><th>DUV M-1</th><th>Δ MoM %</th></tr></thead>
+              <tbody><tr><td colspan="3" class="empty-row">Chờ raw_item performance (daily_unique_view_users)</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ===================== TAB 2: SELLER PERFORMANCE ===================== -->
+    <section class="tab-panel" id="tab-seller">
+
+      <div class="section-block">
+        <div class="section-head">
+          <h2>Chọn seller</h2>
+        </div>
+        <label class="field field-wide">
+          <span>Shop</span>
+          <select id="sellerSelect"><option value="">Chờ dữ liệu…</option></select>
+        </label>
+      </div>
+
+      <div class="section-block">
+        <div class="section-head"><h2>1 · Seller performance theo metric</h2></div>
+        <div class="metric-grid" id="sellerMetricGrid"></div>
+        <div class="card chart-card"><canvas id="sellerTrendChart" height="90"></canvas></div>
+      </div>
+
+      <div class="section-block">
+        <div class="section-head"><h2>2 · Benchmark cùng L2 subcategory (AI thinking)</h2></div>
+        <div class="card insight-card" id="sellerBenchmarkInsight">
+          <p class="empty-row">Chờ Program structure + raw_seller_performance để so sánh peer L2 subcat.</p>
+        </div>
+      </div>
+
+      <div class="section-block">
+        <div class="section-head"><h2>3 · Model performance — Top grow / Top drop MoM</h2></div>
+        <div class="risky-grid two-col">
+          <div class="card table-card">
+            <h3>Top Grow MoM</h3>
+            <table class="data-table compact" id="modelGrowTable">
+              <thead><tr><th>Model</th><th>ADG MoM %</th></tr></thead>
+              <tbody><tr><td colspan="2" class="empty-row">Chờ raw_model performance</td></tr></tbody>
+            </table>
+          </div>
+          <div class="card table-card">
+            <h3>Top Drop MoM</h3>
+            <table class="data-table compact" id="modelDropTable">
+              <thead><tr><th>Model</th><th>ADG MoM %</th></tr></thead>
+              <tbody><tr><td colspan="2" class="empty-row">Chờ raw_model performance</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-block">
+        <div class="section-head"><h2>4 · Benchmark cùng L3 subcategory (AI thinking)</h2></div>
+        <div class="card insight-card" id="modelBenchmarkInsight">
+          <p class="empty-row">Chờ Program structure + raw_model performance để so sánh peer L3 subcat.</p>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ===================== TAB 3: MSP PERFORMANCE ===================== -->
+    <section class="tab-panel" id="tab-msp">
+
+      <div class="section-block">
+        <div class="section-head">
+          <h2>Revenue theo tháng — từng gói MSP</h2>
+          <span class="muted small">Nguồn: raw_MSP tracking + MSP rev — CHỜ LINK CSV</span>
+        </div>
+        <div class="card chart-card"><canvas id="mspRevenueChart" height="90"></canvas>
+          <p class="empty-row" style="margin-top:12px">Chờ publish 2 tab: <strong>raw_MSP tracking</strong> (seller nào mua gói nào, tháng nào) và <strong>MSP rev</strong> (revenue từng gói).</p>
+        </div>
+      </div>
+
+      <div class="section-block">
+        <div class="section-head">
+          <h2>Benchmark ROI / CIR theo shop có MSP</h2>
+          <span class="muted small">GMV = ADG × ngày, so với MSP revenue</span>
+        </div>
+        <div class="card table-card">
+          <table class="data-table" id="mspRoiTable">
+            <thead><tr><th>Shop</th><th>GMV (ADG×day)</th><th>MSP Revenue</th><th>ROI/CIR</th></tr></thead>
+            <tbody><tr><td colspan="4" class="empty-row">Chờ raw_MSP tracking + MSP rev</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="section-block">
+        <div class="section-head">
+          <h2>L2 Subcategory Performance — trend GMV theo tháng</h2>
+          <span class="muted small">Drill-down theo L2 subcat · GMV = ADG × ngày</span>
+        </div>
+        <div class="card chart-card"><canvas id="l2TrendChart" height="100"></canvas></div>
+      </div>
+
+      <div class="section-block">
+        <div class="section-head">
+          <h2>Potential Seller — Suggest gói MSP phù hợp</h2>
+          <span class="muted small">Dựa trên ads expense L·M, voucher expense L·M, L1/L2 subcat performance + quyền lợi từng gói (MSP interest)</span>
+        </div>
+        <div class="card table-card">
+          <table class="data-table" id="mspPotentialTable">
+            <thead><tr><th>Seller</th><th>Ads expense (M)</th><th>Voucher expense (M)</th><th>L1/L2</th><th>Gói đề xuất</th><th>Pitching method</th></tr></thead>
+            <tbody><tr><td colspan="6" class="empty-row">Chờ raw_MSP tracking, MSP rev, MSP interest</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="js/config.js"></script>
+<script src="js/kpiEngine.js"></script>
+<script src="js/dataLoader.js"></script>
+<script src="js/suggestionEngine.js"></script>
+<script src="js/overall.js"></script>
+<script src="js/seller.js"></script>
+<script src="js/mspTab.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
