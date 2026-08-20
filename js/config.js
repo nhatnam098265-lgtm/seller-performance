@@ -24,6 +24,44 @@ const CONFIG = {
     raw_msp_tracking:       "https://docs.google.com/spreadsheets/d/e/2PACX-1vSozBc9gvn30plCV7qDd2L90YVx6E7nW7Ta-y1osc6yUe7rNpHK3tnMVUH0VuexAbvZn6fHr9L1EGxW/pub?gid=1487600921&single=true&output=csv",
     msp_rev:                "https://docs.google.com/spreadsheets/d/e/2PACX-1vSozBc9gvn30plCV7qDd2L90YVx6E7nW7Ta-y1osc6yUe7rNpHK3tnMVUH0VuexAbvZn6fHr9L1EGxW/pub?gid=185777366&single=true&output=csv",
     msp_interest:           "https://docs.google.com/spreadsheets/d/e/2PACX-1vSozBc9gvn30plCV7qDd2L90YVx6E7nW7Ta-y1osc6yUe7rNpHK3tnMVUH0VuexAbvZn6fHr9L1EGxW/pub?gid=1894559757&single=true&output=csv",
+
+    raw_rm_kpi:              "https://docs.google.com/spreadsheets/d/e/2PACX-1vRb8cibS8r1pXWT0oWxRWVFVUCcIO165T_nl4GdiptZ2IP1306-vTcOCehzZvnYh_4aDPM2wuvKFr8J/pub?gid=100546136&single=true&output=csv",
+    kpi_weightage:           "https://docs.google.com/spreadsheets/d/e/2PACX-1vRb8cibS8r1pXWT0oWxRWVFVUCcIO165T_nl4GdiptZ2IP1306-vTcOCehzZvnYh_4aDPM2wuvKFr8J/pub?gid=1654879572&single=true&output=csv",
+    tracking_program_query:  "https://docs.google.com/spreadsheets/d/e/2PACX-1vSozBc9gvn30plCV7qDd2L90YVx6E7nW7Ta-y1osc6yUe7rNpHK3tnMVUH0VuexAbvZn6fHr9L1EGxW/pub?gid=1896458634&single=true&output=csv",
+  },
+
+  // tracking program_query — sheet phức tạp: mỗi program có 1 cột cờ join
+  // dạng tên "{Metric}_{TênProgram}" (vd "ADG_Flash Sale (FS)", "AMS expense_
+  // Shopee idol live OA") + 1 cột text log bên cạnh (bị bỏ qua). Parser dò
+  // các cột có chứa "_" trong header, đọc giá trị 1/0 trực tiếp theo shop_id.
+  // Metric prefix khớp với SuggestionEngine.METRIC_KEY_TO_LABEL (ADG, Paid
+  // Ads expense, AMS expense, Video ADO, Livestream ADO).
+
+  // raw_RM KPI — nguồn MỚI cho 5 chỉ số cốt lõi Tab I (thay raw_seller_performance).
+  // Bảng sạch, có sẵn cả target VÀ pct_*_achieved (không cần tự tính %target nữa).
+  // Có 1 dòng shop_id="Total" = số tổng toàn ngành hàng, dùng cho 5 metric card.
+  // Lưu ý: tiền tệ ở đây là VNĐ (khác USD như raw_seller_performance cũ).
+  // Sheet hiện chỉ có 1 tháng dữ liệu (grass_month 2026-08) — CHƯA có cột LM/gap
+  // nên MoM cho khối 5 metric card sẽ tạm để "—" cho đến khi sheet có thêm lịch sử.
+  COLUMNS_RM_KPI: {
+    shop_id: "shop_id", username: "username", rm: "rm", group_cat: "group_cat",
+    target_ado: "target_ado", target_adgmv_vnd: "target_adgmv_vnd",
+    target_paid_ads_spending_vnd: "target_paid_ads_spending_vnd",
+    target_offsite_spendings: "target_offsite_spendings",
+    target_winning_sku_ado_coverage: "target_winning_sku_ado_coverage",
+    target_content_ado_contribution: "target_content_ado_contribution",
+    mtd_ado: "mtd_ado", mtd_sale: "mtd_Sale",
+    mtd_paid_ads: "mtd_monthly_paid_ads_spending",
+    actual_offsite: "actual_offsite_spendings",
+    winning_ado_coverage: "winning_ado_coverage",
+    mtd_content_ado: "mtd_content_ado",
+    pct_ado_achieved: "pct_ado_achieved",
+    pct_gmv_achieved: "pct_gmv_achieved",
+    pct_paid_ads_achieved: "pct_paid_ads_spending_achieved",
+    pct_offsite_achieved: "pct_offsite_spendings_achieved",
+    pct_winning_ado_achieved: "pct_winning_ado_achieved",
+    pct_content_ado_achieved: "pct_content_ado_achieved",
+    kpi_score_actual: "kpi_score_actual",
   },
 
   // msp_rev — catalog giá & revenue từng gói MSP (USD). Bảng sạch header:true.
@@ -132,6 +170,7 @@ const CONFIG = {
     l2_cat:           "level2_global_be_category",
     l3_cat:           "level3_global_be_category",
     current_stock:    "current_stock",
+    model_status:     "model_status",   // 1 = active — dùng lọc OOS alert
     adgmv:            "adgmv",
     ado:              "ado",
     ranking_adg_monthly: "ranking ADG monthly",
@@ -179,11 +218,13 @@ const CONFIG = {
     seller_content_target_m0: "Seller Content Target M-0",
   },
 
+  // 5-KPI score theo công thức Jolie xác nhận (không gồm Marketing solution
+  // packages) — weight lấy nguyên từ sheet KPI Weightage, KHÔNG renormalize
+  // lại thành 100% (tổng 5 weight = 85%, đúng theo công thức "score = Σ pct×weight").
   KPI_WEIGHTS: {
     ad_gmv:              { label: "AD.GMV Portfolio",               weight: 0.25, maxScore: 120 },
     paid_ads:            { label: "Paid ads",                       weight: 0.25, maxScore: 120 },
-    marketing_solution:  { label: "Marketing solution packages",    weight: 0.15, maxScore: 120 },
-    offsite:             { label: "Off-site (AMS/CPAS/GAS)",        weight: 0.10, maxScore: 120 },
+    offsite:              { label: "Off-site (AMS/CPAS/GAS)",        weight: 0.10, maxScore: 120 },
     content_ado:         { label: "Seller Content ADO contribution",weight: 0.15, maxScore: 120 },
     winning_sku_ado:     { label: "% Winning SKU ADO coverage",     weight: 0.10, maxScore: 120 },
   },

@@ -10,6 +10,8 @@ const OverallTab = (() => {
   function fmt(v, unit) {
     if (v === null || v === undefined || isNaN(v)) return "—";
     if (unit === "currency") return "$" + Number(v).toLocaleString("en-US", { maximumFractionDigits: 0 });
+    if (unit === "vnd") return Number(v).toLocaleString("en-US", { maximumFractionDigits: 0 }) + "₫";
+    if (unit === "pct") return (Number(v) * 100).toFixed(1) + "%";
     return Number(v).toLocaleString("en-US", { maximumFractionDigits: 1 });
   }
   function fmtPct(p) {
@@ -104,15 +106,21 @@ const OverallTab = (() => {
       </div>`;
   }
 
+  // Nếu AppState.selectedMonth được set (từ dropdown "Kỳ báo cáo"), ưu tiên
+  // lọc theo tháng đó; mặc định (chưa chọn) vẫn dùng tháng mới nhất theo end_date.
   function aggregateSellerPerf(rows) {
-    let latestEnd = null;
-    rows.forEach(r => {
-      const d = new Date(r[C.end_date]);
-      if (!isNaN(d) && (!latestEnd || d > latestEnd)) latestEnd = d;
-    });
-    const current = latestEnd
-      ? rows.filter(r => new Date(r[C.end_date]).getTime() === latestEnd.getTime())
-      : rows;
+    let current;
+    const selectedMonth = window.AppState && window.AppState.selectedMonth;
+    if (selectedMonth) {
+      current = rows.filter(r => r[C.month] === selectedMonth);
+    } else {
+      let latestEnd = null;
+      rows.forEach(r => {
+        const d = new Date(r[C.end_date]);
+        if (!isNaN(d) && (!latestEnd || d > latestEnd)) latestEnd = d;
+      });
+      current = latestEnd ? rows.filter(r => new Date(r[C.end_date]).getTime() === latestEnd.getTime()) : rows;
+    }
 
     const sum = (col) => current.reduce((s, r) => s + (DataLoader.cleanNumber(r[col]) || 0), 0);
 
@@ -152,69 +160,40 @@ const OverallTab = (() => {
 
   async function render() {
     const grid = document.getElementById("metricGrid");
-    const seller = await DataLoader.loadCsv("raw_seller_performance");
-    const target = await DataLoader.loadTargetPersonal();
+    const rmKpi = await DataLoader.loadCsv("raw_rm_kpi");
+    const K = CONFIG.COLUMNS_RM_KPI;
 
-    if (!seller.ok || seller.rows.length === 0) {
-      grid.innerHTML = renderPlaceholderCard("ADG (AD.GMV)", "raw_seller_performance chưa tải được")
-        + renderPlaceholderCard("ADO", "raw_seller_performance chưa tải được")
-        + renderPlaceholderCard("Paid ads expense", "raw_seller_performance chưa tải được")
-        + renderPlaceholderCard("Offsite expense", "raw_seller_performance chưa tải được")
-        + renderPlaceholderCard("Content ADO", "raw_seller_performance chưa tải được")
-        + renderPlaceholderCard("MSP (Marketing Solution Packages)", "chưa có tên cột nguồn — cần xác nhận");
+    if (!rmKpi.ok || rmKpi.rows.length === 0) {
+      grid.innerHTML = renderPlaceholderCard("ADG (AD.GMV)", "raw_rm_kpi chưa tải được")
+        + renderPlaceholderCard("ADO", "raw_rm_kpi chưa tải được")
+        + renderPlaceholderCard("Paid ads expense", "raw_rm_kpi chưa tải được")
+        + renderPlaceholderCard("Offsite expense", "raw_rm_kpi chưa tải được")
+        + renderPlaceholderCard("Content ADO", "raw_rm_kpi chưa tải được")
+        + renderPlaceholderCard("Winning ADO coverage", "raw_rm_kpi chưa tải được")
+        + renderMspCard();
       setSyncStatus("error");
       await renderOosTable();
       return;
     }
 
-    const agg = aggregateSellerPerf(seller.rows);
-    const tgt = target.ok ? aggregateTargets(target.rows) : null;
+    // Dòng tổng toàn ngành hàng: shop_id = "Total"
+    const total = rmKpi.rows.find(r => r[K.shop_id] === "Total") || rmKpi.rows[0];
 
     const cards = [];
-
-    cards.push(renderMetricCard(
-      "ADG (AD.GMV)", agg.adgmv,
-      agg.adgLm ? (agg.adgmv - agg.adgLm) / agg.adgLm : null,
-      tgt && tgt.sumAdSales ? agg.adgmv / tgt.sumAdSales : null,
-      "currency"
-    ));
-
-    cards.push(renderMetricCard(
-      "ADO", agg.ado,
-      agg.adoLm ? (agg.ado - agg.adoLm) / agg.adoLm : null,
-      null,
-      "number"
-    ));
-
-    const paidAdsMtd = agg.paidAdsDaily * agg.days;
-    const paidAdsLm = agg.paidAdsDailyLm * agg.days;
-    cards.push(renderMetricCard(
-      "Paid ads expense", paidAdsMtd,
-      paidAdsLm ? (paidAdsMtd - paidAdsLm) / paidAdsLm : null,
-      tgt && tgt.sumPaidAds ? paidAdsMtd / tgt.sumPaidAds : null,
-      "currency"
-    ));
-
-    cards.push(renderMetricCard(
-      "Offsite expense", agg.offsite,
-      agg.offsiteLm ? (agg.offsite - agg.offsiteLm) / agg.offsiteLm : null,
-      tgt && tgt.sumOffsite ? agg.offsite / tgt.sumOffsite : null,
-      "currency"
-    ));
-
-    const contentAdo = agg.videoAdo + agg.liveAdo;
-    cards.push(renderMetricCard(
-      "Content ADO (Video + Livestream)", contentAdo, null,
-      tgt && tgt.sumContent ? contentAdo / tgt.sumContent : null,
-      "number"
-    ));
-
+    // Ghi chú: raw_RM KPI hiện chỉ có 1 tháng dữ liệu -> chưa có cột LM/gap,
+    // nên "So với cùng kỳ tháng trước" tạm để "—" cho tới khi sheet có thêm lịch sử.
+    cards.push(renderMetricCard("ADG (AD.GMV)", DataLoader.cleanNumber(total[K.mtd_sale]), null, DataLoader.cleanNumber(total[K.pct_gmv_achieved]), "vnd"));
+    cards.push(renderMetricCard("ADO", DataLoader.cleanNumber(total[K.mtd_ado]), null, DataLoader.cleanNumber(total[K.pct_ado_achieved]), "number"));
+    cards.push(renderMetricCard("Paid ads expense", DataLoader.cleanNumber(total[K.mtd_paid_ads]), null, DataLoader.cleanNumber(total[K.pct_paid_ads_achieved]), "vnd"));
+    cards.push(renderMetricCard("Offsite expense", DataLoader.cleanNumber(total[K.actual_offsite]), null, DataLoader.cleanNumber(total[K.pct_offsite_achieved]), "vnd"));
+    cards.push(renderMetricCard("Content ADO (Video + Livestream)", DataLoader.cleanNumber(total[K.mtd_content_ado]), null, DataLoader.cleanNumber(total[K.pct_content_ado_achieved]), "number"));
+    cards.push(renderMetricCard("Winning ADO coverage", DataLoader.cleanNumber(total[K.winning_ado_coverage]), null, DataLoader.cleanNumber(total[K.pct_winning_ado_achieved]), "pct"));
     cards.push(renderMspCard());
 
     grid.innerHTML = cards.join("");
     wireMspInputs();
-    document.getElementById("mtdRangeLabel").textContent = `${agg.rowCount} seller · ${agg.days} ngày`;
-    setSyncStatus(target.ok ? "ok" : "partial");
+    document.getElementById("mtdRangeLabel").textContent = `${rmKpi.rows.length - 1} seller · nguồn raw_RM KPI`;
+    setSyncStatus("ok");
 
     await renderOosTable();
     await renderTrafficTables();
@@ -222,6 +201,9 @@ const OverallTab = (() => {
     await renderKpiRiskyTable();
   }
 
+  // OOS Alert (đã xác nhận): current_stock <= 10 AND model_status = 1,
+  // top-down theo adgmv, chỉ lấy model thuộc kỳ tháng hiện tại
+  // (start_date = ngày đầu tháng hiện tại, tức EOMONTH(TODAY(),-1)+1).
   async function renderOosTable() {
     const tbody = document.querySelector("#oosTable tbody");
     const model = await DataLoader.loadCsv("raw_model_performance");
@@ -232,26 +214,34 @@ const OverallTab = (() => {
       return;
     }
 
+    const now = new Date();
+    const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
     const rows = model.rows
+      .filter(r => {
+        const sd = new Date(r[M.start_date]);
+        return !isNaN(sd) && sd.getFullYear() === firstOfMonth.getFullYear() && sd.getMonth() === firstOfMonth.getMonth();
+      })
       .map(r => ({
         model: r[M.model_name] || r[M.model_id],
         seller: r[M.seller_name],
-        adgLm: DataLoader.cleanNumber(r[M.adg_lm]),
+        adg: DataLoader.cleanNumber(r[M.adgmv]),
         stock: DataLoader.cleanNumber(r[M.current_stock]),
+        status: DataLoader.cleanNumber(r[M.model_status]),
       }))
-      .filter(r => r.stock !== null && r.stock <= CONFIG.OOS_STOCK_THRESHOLD && r.adgLm !== null && r.adgLm > 0)
-      .sort((a, b) => b.adgLm - a.adgLm)
+      .filter(r => r.stock !== null && r.stock <= CONFIG.OOS_STOCK_THRESHOLD && r.status === 1 && r.adg !== null)
+      .sort((a, b) => b.adg - a.adg)
       .slice(0, 10);
 
     if (rows.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="4" class="empty-row">Không có model nào thoả điều kiện OOS (stock ≤ ${CONFIG.OOS_STOCK_THRESHOLD})</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="4" class="empty-row">Không có model nào thoả điều kiện OOS (stock ≤ ${CONFIG.OOS_STOCK_THRESHOLD}, model_status=1, tháng hiện tại)</td></tr>`;
       return;
     }
     tbody.innerHTML = rows.map(r => `
       <tr>
         <td title="${r.model}">${(r.model || "").slice(0, 40)}</td>
         <td>${r.seller}</td>
-        <td>$${r.adgLm.toLocaleString("en-US", { maximumFractionDigits: 0 })}</td>
+        <td>$${r.adg.toLocaleString("en-US", { maximumFractionDigits: 0 })}</td>
         <td><span class="badge badge-risk">${r.stock}</span></td>
       </tr>`).join("");
   }
@@ -273,21 +263,28 @@ const OverallTab = (() => {
 
     if (metricKey === "content_ado") return renderContentAdoRiskyTable(tbody);
     if (metricKey === "winning_ado") {
-      tbody.innerHTML = `<tr><td colspan="8" class="empty-row">Winning SKU ADO = model_win_ado (bidding shop pfm) — sheet bidding hiện là 1 snapshot, chưa có cột tháng để tính MoM. Cần bidding sheet có lịch sử theo tháng để bổ sung bảng này.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" class="empty-row">Winning SKU ADO = model_win_ado (bidding shop pfm) — sheet bidding hiện là 1 snapshot, chưa có cột tháng để tính MoM. Cần bidding sheet có lịch sử theo tháng để bổ sung bảng này.</td></tr>`;
       return;
     }
 
     const cfg = METRIC_RISK_CONFIG[metricKey];
     if (!cfg) {
-      tbody.innerHTML = `<tr><td colspan="8" class="empty-row">Metric này cần công thức LM cụ thể hơn.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" class="empty-row">Metric này cần công thức LM cụ thể hơn.</td></tr>`;
       return;
     }
     const seller = await DataLoader.loadCsv("raw_seller_performance");
     if (!seller.ok) {
-      tbody.innerHTML = `<tr><td colspan="8" class="empty-row">Chờ raw_seller_performance</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" class="empty-row">Chờ raw_seller_performance</td></tr>`;
       return;
     }
-    const rows = seller.rows
+
+    // FIX: chỉ lấy tháng mới nhất — trước đây map toàn bộ rows (mọi tháng)
+    // khiến 1 seller xuất hiện nhiều lần (mỗi tháng 1 dòng).
+    let latestEnd = null;
+    seller.rows.forEach(r => { const d = new Date(r[C.end_date]); if (!isNaN(d) && (!latestEnd || d > latestEnd)) latestEnd = d; });
+    const current = seller.rows.filter(r => new Date(r[C.end_date]).getTime() === (latestEnd ? latestEnd.getTime() : NaN));
+
+    const rows = current
       .map(r => ({
         seller: r[C.seller_name],
         shopId: r[C.shop_id],
@@ -299,25 +296,25 @@ const OverallTab = (() => {
       .slice(0, 10);
 
     if (rows.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="8" class="empty-row">Không có seller nào thoả điều kiện drop MoM cho ${cfg.label}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" class="empty-row">Không có seller nào thoả điều kiện drop MoM cho ${cfg.label}</td></tr>`;
       return;
     }
 
-    const suggestion = await SuggestionEngine.suggestionText(cfg.suggestKey);
-    tbody.innerHTML = rows.map(r => {
+    const rowsHtml = await Promise.all(rows.map(async (r, i) => {
       const mtd = r.lm + r.gap;
-      const gapPct = r.lm ? r.gap / r.lm : null;
+      const suggestion = await SuggestionEngine.suggestionText(cfg.suggestKey, r.shopId);
       return `
       <tr>
+        <td>${i + 1}</td>
         <td>${r.seller}</td>
         <td>—</td>
         <td>${fmt(r.lm, cfg.unit)}</td>
         <td>${fmt(mtd, cfg.unit)}</td>
         <td class="tag-risk">${fmt(r.gap, cfg.unit)}</td>
-        <td class="tag-risk">${gapPct === null ? "—" : (gapPct * 100).toFixed(1) + "%"}</td>
         <td>${suggestion}</td>
       </tr>`;
-    }).join("");
+    }));
+    tbody.innerHTML = rowsHtml.join("");
   }
 
   // Content ADO = ado_from_seller_video + ado_from_livestream, tự tính MoM
@@ -325,7 +322,7 @@ const OverallTab = (() => {
   async function renderContentAdoRiskyTable(tbody) {
     const seller = await DataLoader.loadCsv("raw_seller_performance");
     if (!seller.ok) {
-      tbody.innerHTML = `<tr><td colspan="8" class="empty-row">Chờ raw_seller_performance</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" class="empty-row">Chờ raw_seller_performance</td></tr>`;
       return;
     }
     const months = [...new Set(seller.rows.map(r => r[C.month]))].sort((a, b) => Number(a) - Number(b));
@@ -356,21 +353,24 @@ const OverallTab = (() => {
       .slice(0, 10);
 
     if (rows.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="8" class="empty-row">Không có seller nào drop Content ADO MoM</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" class="empty-row">Không có seller nào drop Content ADO MoM</td></tr>`;
       return;
     }
 
-    const suggestion = await SuggestionEngine.suggestionText("content_ado");
-    tbody.innerHTML = rows.map(r => `
+    const rowsHtml = await Promise.all(rows.map(async (r, i) => {
+      const suggestion = await SuggestionEngine.suggestionText("content_ado", r.shopId);
+      return `
       <tr>
+        <td>${i + 1}</td>
         <td>${r.seller}</td>
         <td>—</td>
         <td>${fmt(r.lm, "number")}</td>
         <td>${fmt(r.cur, "number")}</td>
         <td class="tag-risk">${fmt(r.cur - r.lm, "number")}</td>
-        <td class="tag-risk">${(r.gapPct * 100).toFixed(1)}%</td>
         <td>${suggestion}</td>
-      </tr>`).join("");
+      </tr>`;
+    }));
+    tbody.innerHTML = rowsHtml.join("");
   }
 
   // ============================================================
@@ -394,86 +394,64 @@ const OverallTab = (() => {
 
   async function renderKpiRiskyTable() {
     const tbody = document.querySelector("#riskySellerTable tbody");
-    const seller = await DataLoader.loadCsv("raw_seller_performance");
-    const target = await DataLoader.loadTargetPersonal();
-    const bidding = await DataLoader.loadCsv("bidding_shop_pfm");
+    const rmKpi = await DataLoader.loadCsv("raw_rm_kpi");
+    const K = CONFIG.COLUMNS_RM_KPI;
 
-    if (!seller.ok || !target.ok) {
-      tbody.innerHTML = `<tr><td colspan="8" class="empty-row">Chờ raw_seller_performance + raw_target_personal</td></tr>`;
+    if (!rmKpi.ok) {
+      tbody.innerHTML = `<tr><td colspan="8" class="empty-row">Chờ raw_rm_kpi</td></tr>`;
       return;
     }
 
-    // target mới nhất theo shop
-    const targetByShop = {};
-    target.rows.forEach(r => {
-      const prev = targetByShop[r.shop_id];
-      if (!prev || new Date(prev.to) < new Date(r.to)) targetByShop[r.shop_id] = r;
+    // Bỏ dòng "Total" — chỉ xét từng seller
+    const sellers = rmKpi.rows.filter(r => r[K.shop_id] && r[K.shop_id] !== "Total");
+
+    // "target cao nhất ở TỪNG metric riêng lẻ" — seller phải nằm top 30% theo
+    // target ở CẢ 5 metric: AD.GMV, Paid ads, Offsite, Content ADO, Winning ADO
+    const targetFields = {
+      ad_gmv: K.target_adgmv_vnd,
+      paid_ads: K.target_paid_ads_spending_vnd,
+      offsite: K.target_offsite_spendings,
+      content_ado: K.target_content_ado_contribution,
+      winning_sku_ado: K.target_winning_sku_ado_coverage,
+    };
+    const topSets = {};
+    Object.entries(targetFields).forEach(([key, col]) => {
+      const entries = sellers
+        .map(r => [r[K.shop_id], DataLoader.cleanNumber(r[col])])
+        .filter(([, v]) => v !== null && v > 0)
+        .sort((a, b) => b[1] - a[1]);
+      const cutoff = Math.max(1, Math.ceil(entries.length * TOP_TARGET_PERCENTILE));
+      topSets[key] = new Set(entries.slice(0, cutoff).map(([id]) => id));
     });
 
-    // seller MTD mới nhất
-    let latestEnd = null;
-    seller.rows.forEach(r => { const d = new Date(r[C.end_date]); if (!isNaN(d) && (!latestEnd || d > latestEnd)) latestEnd = d; });
-    const current = seller.rows.filter(r => new Date(r[C.end_date]).getTime() === (latestEnd ? latestEnd.getTime() : NaN));
-
-    // Winning SKU ADO coverage theo shop (từ bidding, nếu có)
-    let winCoverageByShop = {};
-    if (bidding.ok) {
-      const B = CONFIG.COLUMNS_BIDDING;
-      const winSum = {}, eligSum = {};
-      bidding.rows.forEach(r => {
-        const shopId = r[B.shop_id];
-        winSum[shopId] = (winSum[shopId] || 0) + (DataLoader.cleanNumber(r[B.model_win_ado]) || 0);
-        eligSum[shopId] = (eligSum[shopId] || 0) + (DataLoader.cleanNumber(r[B.model_eligible_ado]) || 0);
-      });
-      Object.keys(winSum).forEach(shopId => {
-        winCoverageByShop[shopId] = eligSum[shopId] ? winSum[shopId] / eligSum[shopId] : null;
-      });
-    }
-
-    const msp = getMspInput(); // vẫn giữ để hiển thị card MTD/target riêng, không dùng trong score bảng này nữa
-
-    // Xác định top-target-shop-id-set cho từng metric có target
-    const topAdSales = topShopIdsByTarget(targetByShop, "target_ad_sales_gross", TOP_TARGET_PERCENTILE);
-    const topPaidAds = topShopIdsByTarget(targetByShop, "target_paid_ads", TOP_TARGET_PERCENTILE);
-    const topOffsite = topShopIdsByTarget(targetByShop, "offsite_target_m0", TOP_TARGET_PERCENTILE);
-    const topContent = topShopIdsByTarget(targetByShop, "seller_content_target_m0", TOP_TARGET_PERCENTILE);
-
     const results = [];
-    current.forEach(r => {
-      const shopId = r[C.shop_id];
-      const t = targetByShop[shopId];
-      if (!t) return;
-
-      // seller phải nằm top target ở TỪNG metric có target xác định (loại winning_sku_ado & MSP vì không có tập target rõ theo shop)
-      const isTop = topAdSales.has(shopId) && topPaidAds.has(shopId) && topOffsite.has(shopId) && topContent.has(shopId);
+    sellers.forEach(r => {
+      const shopId = r[K.shop_id];
+      const isTop = Object.values(topSets).every(set => set.has(shopId));
       if (!isTop) return;
 
-      const adgmv = DataLoader.cleanNumber(r[C.adgmv]);
-      const paidAdsMtd = (DataLoader.cleanNumber(r[C.daily_paidads_expense]) || 0) * (DataLoader.cleanNumber(r[C.days]) || 1);
-      const offsite = DataLoader.cleanNumber(r[C.ams_aff_commission]);
-      const contentAdo = (DataLoader.cleanNumber(r[C.ado_from_seller_video]) || 0) + (DataLoader.cleanNumber(r[C.ado_from_livestream]) || 0);
-
+      // Công thức đã xác nhận: score = Σ (%reach target metric × weightage),
+      // dùng thẳng pct_*_achieved đã tính sẵn trong sheet.
       const pctByMetric = {
-        ad_gmv:       KpiEngine.pctReachTarget(adgmv, t.target_ad_sales_gross),
-        paid_ads:     KpiEngine.pctReachTarget(paidAdsMtd, t.target_paid_ads),
-        offsite:      KpiEngine.pctReachTarget(offsite, t.offsite_target_m0),
-        content_ado:  KpiEngine.pctReachTarget(contentAdo, t.seller_content_target_m0),
-        winning_sku_ado: winCoverageByShop[shopId] !== undefined ? winCoverageByShop[shopId] : null,
-        // marketing_solution: đã bỏ khỏi bảng này theo yêu cầu — MSP không apply theo từng seller ở đây
+        ad_gmv:          DataLoader.cleanNumber(r[K.pct_gmv_achieved]),
+        paid_ads:        DataLoader.cleanNumber(r[K.pct_paid_ads_achieved]),
+        offsite:         DataLoader.cleanNumber(r[K.pct_offsite_achieved]),
+        content_ado:     DataLoader.cleanNumber(r[K.pct_content_ado_achieved]),
+        winning_sku_ado: DataLoader.cleanNumber(r[K.pct_winning_ado_achieved]),
       };
 
       const { weightedScore, breakdown } = KpiEngine.computeWeightedScore(pctByMetric);
       const weakest = KpiEngine.weakestMetric(breakdown);
 
       results.push({
-        seller: r[C.seller_name], shopId, segment: r[C.seller_segment],
-        targetAdSales: t.target_ad_sales_gross,
+        seller: r[K.username], shopId, rm: r[K.rm], groupCat: r[K.group_cat],
+        targetAdSales: DataLoader.cleanNumber(r[K.target_adgmv_vnd]),
         score: weightedScore, weakest,
       });
     });
 
     if (results.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="8" class="empty-row">Không có seller nào nằm top ${(TOP_TARGET_PERCENTILE*100).toFixed(0)}% target ở tất cả metric (ADG, Paid ads, Offsite, Content ADO)</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8" class="empty-row">Không có seller nào nằm top ${(TOP_TARGET_PERCENTILE*100).toFixed(0)}% target ở CẢ 5 metric (ADG, Paid ads, Offsite, Content ADO, Winning ADO)</td></tr>`;
       return;
     }
 
@@ -481,14 +459,14 @@ const OverallTab = (() => {
     const top10 = results.slice(0, 10);
 
     const rowsHtml = await Promise.all(top10.map(async (r, i) => {
-      const suggestion = r.weakest ? await SuggestionEngine.suggestionText(r.weakest.key === "ad_gmv" ? "adg" : r.weakest.key) : "—";
+      const suggestion = r.weakest ? await SuggestionEngine.suggestionText(r.weakest.key === "ad_gmv" ? "adg" : r.weakest.key, r.shopId) : "—";
       return `
       <tr>
         <td>${i + 1}</td>
         <td>${r.seller}</td>
-        <td>—</td>
-        <td>${r.segment || "—"}</td>
-        <td>$${(r.targetAdSales || 0).toLocaleString("en-US",{maximumFractionDigits:0})}</td>
+        <td>${r.rm || "—"}</td>
+        <td>${r.groupCat || "—"}</td>
+        <td>${(r.targetAdSales || 0).toLocaleString("en-US",{maximumFractionDigits:0})}₫</td>
         <td><span class="score-pill ${r.score < 80 ? 'tag-risk' : 'tag-watch'}">${r.score === null ? "—" : r.score.toFixed(0)}</span></td>
         <td>${r.weakest ? r.weakest.label : "—"}</td>
         <td>${suggestion}</td>

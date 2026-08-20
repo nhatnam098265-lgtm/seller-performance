@@ -191,5 +191,62 @@ const DataLoader = (() => {
     }
   }
 
-  return { loadCsv, loadAll, loadTargetPersonal, loadMspTracking, cleanNumber, _cache: cache };
+  /**
+   * tracking program_query — header thật nằm ở dòng có ô "Shop ID". Các cột
+   * chương trình có tên dạng "{Metric}_{TênProgram}" (chứa dấu "_"), giá trị
+   * 1/0 đọc trực tiếp tại cột đó (bỏ qua cột text log liền kề).
+   * Trả về { ok, columns: [{label, colIndex}], byShop: { shopId: {label: bool} } }
+   */
+  async function loadProgramTracking({ force = false } = {}) {
+    const key = "tracking_program_query";
+    const url = CONFIG.SOURCES[key];
+    if (!url) return { ok: false, columns: [], byShop: {} };
+    const cacheKey = key + "__parsed";
+    if (cache[cacheKey] && !force) return cache[cacheKey];
+
+    try {
+      const res = await fetch(url + (force ? `?_ts=${Date.now()}` : ""), { cache: force ? "no-store" : "default" });
+      const text = await res.text();
+      const raw = Papa.parse(text, { header: false, skipEmptyLines: false }).data;
+
+      let headerRowIdx = -1, shopIdCol = -1;
+      for (let r = 0; r < raw.length; r++) {
+        const idx = raw[r].findIndex(c => (c || "").trim().toLowerCase() === "shop id");
+        if (idx >= 0) { headerRowIdx = r; shopIdCol = idx; break; }
+      }
+      if (headerRowIdx === -1) {
+        const result = { ok: false, columns: [], byShop: {}, reason: "header_not_found" };
+        cache[cacheKey] = result;
+        return result;
+      }
+
+      const header = raw[headerRowIdx];
+      const columns = [];
+      header.forEach((h, i) => {
+        const label = (h || "").trim();
+        if (label.includes("_") && i !== shopIdCol) columns.push({ label, colIndex: i });
+      });
+
+      const byShop = {};
+      raw.slice(headerRowIdx + 1).forEach(row => {
+        const shopId = cleanNumber(row[shopIdCol]);
+        if (shopId === null) return;
+        const flags = {};
+        columns.forEach(c => {
+          const v = cleanNumber(row[c.colIndex]);
+          flags[c.label] = v !== null && v >= 1;
+        });
+        byShop[shopId] = flags;
+      });
+
+      const result = { ok: true, columns, byShop, loadedAt: new Date() };
+      cache[cacheKey] = result;
+      return result;
+    } catch (err) {
+      console.error("[DataLoader] Lỗi parse tracking_program_query:", err);
+      return { ok: false, columns: [], byShop: {}, reason: "fetch_error", error: err };
+    }
+  }
+
+  return { loadCsv, loadAll, loadTargetPersonal, loadMspTracking, loadProgramTracking, cleanNumber, _cache: cache };
 })();

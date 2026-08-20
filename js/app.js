@@ -28,8 +28,6 @@ document.addEventListener("DOMContentLoaded", () => {
     chip.addEventListener("click", () => {
       document.querySelectorAll("#metricRiskTabs .chip").forEach(c => c.classList.remove("active"));
       chip.classList.add("active");
-      // map chip -> metric key hỗ trợ trong overall.js (adg, ads_expense, offsite
-      // đã có công thức LM; winning_ado/content_ado cần xác nhận thêm)
       const map = { adg: "adg", winning_ado: "winning_ado", content_ado: "content_ado", offsite: "offsite", ads_expense: "ads_expense" };
       OverallTab.renderMetricRiskyTable(map[chip.dataset.metric] || chip.dataset.metric);
     });
@@ -38,8 +36,37 @@ document.addEventListener("DOMContentLoaded", () => {
   // ---- refresh ----
   document.getElementById("refreshBtn").addEventListener("click", () => initLoad(true));
 
+  // ---- period dropdown (BUG CŨ: chưa từng được populate/wire) ----
+  populatePeriodSelect();
+
   initLoad(false);
 });
+
+// Trạng thái kỳ báo cáo đang chọn — null = luôn dùng tháng mới nhất (mặc định).
+// OverallTab.aggregateSellerPerf() đọc biến này để lọc.
+window.AppState = { selectedMonth: null };
+
+async function populatePeriodSelect() {
+  const sel = document.getElementById("periodSelect");
+  const seller = await DataLoader.loadCsv("raw_seller_performance");
+  if (!seller.ok || seller.rows.length === 0) {
+    sel.innerHTML = `<option value="">Chưa có dữ liệu</option>`;
+    return;
+  }
+  const C = CONFIG.COLUMNS_SELLER_PERF;
+  const months = [...new Set(seller.rows.map(r => r[C.month]))]
+    .filter(Boolean)
+    .sort((a, b) => Number(a) - Number(b));
+
+  sel.innerHTML = months.map(m => `<option value="${m}">Tháng ${m}</option>`).join("");
+  sel.value = months[months.length - 1]; // mặc định tháng mới nhất
+  window.AppState.selectedMonth = sel.value;
+
+  sel.addEventListener("change", async () => {
+    window.AppState.selectedMonth = sel.value;
+    await initLoad(false);
+  });
+}
 
 async function initLoad(force) {
   await OverallTab.render();

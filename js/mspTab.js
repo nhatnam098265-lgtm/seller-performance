@@ -14,6 +14,15 @@ const MspTab = (() => {
     return "$" + Number(v).toLocaleString("en-US", { maximumFractionDigits: 0 });
   }
 
+  // EOMONTH(end_date, 0) = ngày cuối tháng của end_date -> lấy ra tổng số
+  // ngày trong tháng đó (đã xác nhận: dùng số ngày CẢ THÁNG, không phải số
+  // ngày MTD đã trôi qua, khác với "days" (elapsed) dùng ở Tab I/II).
+  function daysInMonthOf(dateStr) {
+    const d = new Date(dateStr);
+    if (isNaN(d)) return null;
+    return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  }
+
   async function renderRevenueChart() {
     const tracking = await DataLoader.loadMspTracking();
     const canvas = document.getElementById("mspRevenueChart");
@@ -52,8 +61,8 @@ const MspTab = (() => {
     const gmvByShop = {};
     current.forEach(r => {
       const adg = DataLoader.cleanNumber(r[C.adgmv]) || 0;
-      const days = DataLoader.cleanNumber(r[C.days]) || 0;
-      gmvByShop[r[C.shop_id]] = { gmv: adg * days, name: r[C.seller_name] };
+      const daysInMonth = daysInMonthOf(r[C.end_date]) || 0;
+      gmvByShop[r[C.shop_id]] = { gmv: adg * daysInMonth, name: r[C.seller_name] };
     });
 
     const revByShop = {};
@@ -156,9 +165,9 @@ const MspTab = (() => {
     const rows = current
       .filter(r => !activeMspShops.has(String(r[C.shop_id])))
       .map(r => {
-        const days = DataLoader.cleanNumber(r[C.days]) || 1;
-        const voucherMonthly = (voucherByShop[r[C.shop_id]] || 0) * days;
-        const adsMonthlyUsd = (DataLoader.cleanNumber(r[C.daily_paidads_expense]) || 0) * days;
+        const daysInMonth = daysInMonthOf(r[C.end_date]) || 0;
+        const voucherMonthly = (voucherByShop[r[C.shop_id]] || 0) * daysInMonth;
+        const adsMonthlyUsd = (DataLoader.cleanNumber(r[C.daily_paidads_expense]) || 0) * daysInMonth;
         const budgetUsd = adsMonthlyUsd + voucherMonthly;
         const budgetK = budgetUsd * 25; // ước lượng quy đổi USD -> nghìn VNĐ (1 USD ~ 25,000 VNĐ)
         let suggested = packages.find(p => p.priceK >= budgetK) || packages[packages.length - 1];

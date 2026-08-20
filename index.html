@@ -85,7 +85,7 @@
           <table class="data-table" id="riskySellerTable">
             <thead>
               <tr>
-                <th>#</th><th>Seller</th><th>RM</th><th>Segment</th>
+                <th>#</th><th>Seller</th><th>RM</th><th>Group Cat</th>
                 <th>AD.GMV target</th><th>KPI Score</th><th>Điểm yếu nhất</th><th>AI Suggestion</th>
               </tr>
             </thead>
@@ -109,9 +109,9 @@
         <div class="card table-card">
           <table class="data-table" id="riskyMetricTable">
             <thead>
-              <tr><th>#</th><th>Seller</th><th>RM</th><th>M-1</th><th>MTD</th><th>Δ MoM</th><th>Δ MoM %</th><th>AI Suggestion</th></tr>
+              <tr><th>#</th><th>Seller</th><th>RM</th><th>M-1</th><th>MTD</th><th>Δ MoM</th><th>Suggestion</th></tr>
             </thead>
-            <tbody><tr><td colspan="8" class="empty-row">Chờ kết nối raw_seller_performance (M0 vs M-1)</td></tr></tbody>
+            <tbody><tr><td colspan="7" class="empty-row">Chờ kết nối raw_seller_performance (M0 vs M-1)</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -159,9 +159,34 @@
       </div>
 
       <div class="section-block">
-        <div class="section-head"><h2>1 · Seller performance theo metric</h2></div>
+        <div class="section-head"><h2>1 · Performance theo raw_RM KPI (5 chỉ số cốt lõi)</h2></div>
+        <div class="metric-grid" id="sellerRmKpiGrid"></div>
+      </div>
+
+      <div class="section-block">
+        <div class="section-head"><h2>1b · Deep-dive & MoM (chi tiết expense — nguồn raw_seller_performance)</h2></div>
         <div class="metric-grid" id="sellerMetricGrid"></div>
         <div class="card chart-card"><canvas id="sellerTrendChart" height="90"></canvas></div>
+      </div>
+
+      <div class="section-block">
+        <div class="section-head"><h2>Top 10 Risky — By Model / Item (theo seller đang chọn)</h2></div>
+        <div class="risky-grid two-col">
+          <div class="card table-card">
+            <h3>OOS Alert (stock ≤ 10)</h3>
+            <table class="data-table compact" id="sellerOosTable">
+              <thead><tr><th>Model</th><th>ADG</th><th>Stock</th></tr></thead>
+              <tbody><tr><td colspan="3" class="empty-row">Chọn seller ở trên</td></tr></tbody>
+            </table>
+          </div>
+          <div class="card table-card">
+            <h3>SKU Traffic Alert</h3>
+            <table class="data-table compact" id="sellerSkuTrafficTable">
+              <thead><tr><th>SKU</th><th>DUV M-1</th><th>Δ MoM %</th></tr></thead>
+              <tbody><tr><td colspan="3" class="empty-row">Chọn seller ở trên</td></tr></tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       <div class="section-block">
