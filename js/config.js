@@ -16,7 +16,7 @@ const CONFIG = {
 
     raw_seller_list:        "https://docs.google.com/spreadsheets/d/e/2PACX-1vSozBc9gvn30plCV7qDd2L90YVx6E7nW7Ta-y1osc6yUe7rNpHK3tnMVUH0VuexAbvZn6fHr9L1EGxW/pub?gid=812738475&single=true&output=csv",
     raw_target_personal:    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSozBc9gvn30plCV7qDd2L90YVx6E7nW7Ta-y1osc6yUe7rNpHK3tnMVUH0VuexAbvZn6fHr9L1EGxW/pub?gid=801584413&single=true&output=csv",
-    raw_model_performance:  "https://docs.google.com/spreadsheets/d/e/2PACX-1vSozBc9gvn30plCV7qDd2L90YVx6E7nW7Ta-y1osc6yUe7rNpHK3tnMVUH0VuexAbvZn6fHr9L1EGxW/pub?gid=30445457&single=true&output=csv",
+    raw_model_performance:  "https://docs.google.com/spreadsheets/d/e/2PACX-1vRb8cibS8r1pXWT0oWxRWVFVUCcIO165T_nl4GdiptZ2IP1306-vTcOCehzZvnYh_4aDPM2wuvKFr8J/pub?gid=1869717608&single=true&output=csv",
     raw_seller_performance: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSozBc9gvn30plCV7qDd2L90YVx6E7nW7Ta-y1osc6yUe7rNpHK3tnMVUH0VuexAbvZn6fHr9L1EGxW/pub?gid=480790454&single=true&output=csv",
     raw_item_performance:   "https://docs.google.com/spreadsheets/d/e/2PACX-1vSozBc9gvn30plCV7qDd2L90YVx6E7nW7Ta-y1osc6yUe7rNpHK3tnMVUH0VuexAbvZn6fHr9L1EGxW/pub?gid=1034579124&single=true&output=csv",
     program_structure:      "https://docs.google.com/spreadsheets/d/e/2PACX-1vSozBc9gvn30plCV7qDd2L90YVx6E7nW7Ta-y1osc6yUe7rNpHK3tnMVUH0VuexAbvZn6fHr9L1EGxW/pub?gid=1735001561&single=true&output=csv",
@@ -138,6 +138,15 @@ const CONFIG = {
     ams_aff_commission:    "ams_aff_commission(SUM)",
     ado_from_seller_video: "ado_from_seller_video",
     ado_from_livestream:   "ado_from_livestream",
+    creator_video_cnt:     "creator_video_cnt",
+    creator_video_view:    "creator_video_view",
+    adgmv_from_livestream: "adgmv_from_livestream",
+    livestream_session_cnt: "streamer_livestream_session_cnt",
+    livestream_duration:    "streamer_livestream_duration",
+    daily_livestream_seller_voucher:          "daily_livestream_seller_voucher",
+    daily_livestream_shopee_voucher:          "daily_livestream_shopee_voucher",
+    daily_livestream_shopee_exclusive_voucher:"daily_livestream_shopee_exclusive_voucher",
+    daily_livestream_shopee_item_rebate:      "daily_livestream_shopee_item_rebate",
 
     adg_lm:                "adg LM",
     gap_lm_adg:             "gap LM ADG",
@@ -156,10 +165,16 @@ const CONFIG = {
     top_grow:                "top grow",
   },
 
+  // raw_model_performance — bản republish mới (gid=1869717608) KHÔNG còn
+  // các cột tính sẵn "ranking ADG monthly / gap LM ADG / adg LM / top drop /
+  // top grow / top seller" như bản cũ. MoM (Top grow/drop) giờ phải tự tính
+  // bằng cách so 2 tháng (cột "month") có trong data, giống cách làm với
+  // raw_item_performance.
   COLUMNS_MODEL_PERF: {
     month:            "month",
     start_date:       "start_date",
     end_date:         "end_date",
+    days:             "days",
     shop_id:          "shop_id",
     seller_name:      "seller_name",
     item_id:          "item_id",
@@ -173,13 +188,7 @@ const CONFIG = {
     model_status:     "model_status",   // 1 = active — dùng lọc OOS alert
     adgmv:            "adgmv",
     ado:              "ado",
-    ranking_adg_monthly: "ranking ADG monthly",
-    gap_lm_adg:       "gap LM ADG",
-    adg_lm:           "adg LM",
-    ado_lm:           "ado LM",
-    top_drop:         "top drop",
-    top_grow:         "top grow",
-    top_seller:       "top seller",
+    seller_voucher_cost: "daily_seller_voucher_cost",
   },
 
   COLUMNS_SELLER_LIST: {

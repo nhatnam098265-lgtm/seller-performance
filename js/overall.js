@@ -114,12 +114,7 @@ const OverallTab = (() => {
     if (selectedMonth) {
       current = rows.filter(r => r[C.month] === selectedMonth);
     } else {
-      let latestEnd = null;
-      rows.forEach(r => {
-        const d = new Date(r[C.end_date]);
-        if (!isNaN(d) && (!latestEnd || d > latestEnd)) latestEnd = d;
-      });
-      current = latestEnd ? rows.filter(r => new Date(r[C.end_date]).getTime() === latestEnd.getTime()) : rows;
+      current = DataLoader.filterLatestByDate(rows, C.end_date).rows;
     }
 
     const sum = (col) => current.reduce((s, r) => s + (DataLoader.cleanNumber(r[col]) || 0), 0);
@@ -144,8 +139,9 @@ const OverallTab = (() => {
     const byShop = {};
     targetRows.forEach(r => {
       const prev = byShop[r.shop_id];
-      const toDate = new Date(r.to);
-      if (!prev || new Date(prev.to) < toDate) byShop[r.shop_id] = r;
+      const toDate = DataLoader.parseDate(r.to);
+      const prevToDate = prev ? DataLoader.parseDate(prev.to) : null;
+      if (!prev || (toDate && (!prevToDate || prevToDate < toDate))) byShop[r.shop_id] = r;
     });
     let sumAdSales = 0, sumPaidAds = 0, sumOffsite = 0, sumContent = 0, n = 0;
     Object.values(byShop).forEach(r => {
@@ -197,6 +193,7 @@ const OverallTab = (() => {
 
     await renderOosTable();
     await renderTrafficTables();
+    await renderContentChannelAlerts();
     await renderMetricRiskyTable("adg");
     await renderKpiRiskyTable();
   }
@@ -214,13 +211,18 @@ const OverallTab = (() => {
       return;
     }
 
-    const now = new Date();
-    const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    // Dùng tháng mới nhất CÓ TRONG DATA (không phải ngày hệ thống — an toàn
+    // hơn nếu data cập nhật trễ so với lịch thực tế).
+    let latestStart = null;
+    model.rows.forEach(r => {
+      const sd = DataLoader.parseDate(r[M.start_date]);
+      if (sd && (!latestStart || sd > latestStart)) latestStart = sd;
+    });
 
     const rows = model.rows
       .filter(r => {
-        const sd = new Date(r[M.start_date]);
-        return !isNaN(sd) && sd.getFullYear() === firstOfMonth.getFullYear() && sd.getMonth() === firstOfMonth.getMonth();
+        const sd = DataLoader.parseDate(r[M.start_date]);
+        return sd && latestStart && sd.getFullYear() === latestStart.getFullYear() && sd.getMonth() === latestStart.getMonth();
       })
       .map(r => ({
         model: r[M.model_name] || r[M.model_id],
@@ -279,10 +281,9 @@ const OverallTab = (() => {
     }
 
     // FIX: chỉ lấy tháng mới nhất — trước đây map toàn bộ rows (mọi tháng)
-    // khiến 1 seller xuất hiện nhiều lần (mỗi tháng 1 dòng).
-    let latestEnd = null;
-    seller.rows.forEach(r => { const d = new Date(r[C.end_date]); if (!isNaN(d) && (!latestEnd || d > latestEnd)) latestEnd = d; });
-    const current = seller.rows.filter(r => new Date(r[C.end_date]).getTime() === (latestEnd ? latestEnd.getTime() : NaN));
+    // khiến 1 seller xuất hiện nhiều lần (mỗi tháng 1 dòng). Dùng parseDate
+    // để chịu được cả dòng ngày bị lỗi format serial number.
+    const current = DataLoader.filterLatestByDate(seller.rows, C.end_date).rows;
 
     const rows = current
       .map(r => ({
@@ -375,21 +376,23 @@ const OverallTab = (() => {
 
   // ============================================================
   // Top 10 Risky — By KPI & Seller
-  // Rule (đã xác nhận): seller phải nằm TOP theo target ở TỪNG metric
-  // riêng lẻ (không phải tổng target) — dùng ngưỡng top 30% theo target
-  // mỗi metric (có thể chỉnh TOP_TARGET_PERCENTILE bên dưới). Trong nhóm
-  // "top target ở mọi metric" đó, sort theo KPI weighted score tăng dần,
-  // lấy 10 seller thấp điểm nhất.
+  // BUG CŨ: yêu cầu seller phải nằm top 30% target ở CẢ 5 metric CÙNG LÚC
+  // (giao của 5 tập hợp) — quá chặt, thực tế gần như chỉ 1 seller (harumi)
+  // thoả mãn tất cả 5 điều kiện cùng lúc, trong khi buddy.hairs có target
+  // cao + % reach target cao ở nhiều metric riêng lẻ nhưng có thể không lọt
+  // top 30% ở đúng 1 metric nào đó nên bị loại hoàn toàn (all-or-nothing).
+  // FIX: đổi sang composite ranking — với mỗi seller, tính % percentile
+  // target (0–1, 1 = target cao nhất) ở từng metric, lấy TRUNG BÌNH cả 5,
+  // rồi lấy top 30% seller có target trung bình cao nhất. Cách này vẫn giữ
+  // đúng tinh thần "target cao nhất ở tất cả metric" nhưng không loại bỏ
+  // seller chỉ vì thiếu 1 metric.
   // ============================================================
-  const TOP_TARGET_PERCENTILE = 0.3; // top 30% theo target mỗi metric
+  const TOP_TARGET_PERCENTILE = 0.3;
 
-  function topShopIdsByTarget(targetByShop, field, percentile) {
-    const entries = Object.entries(targetByShop)
-      .map(([shopId, t]) => [shopId, t[field]])
-      .filter(([, v]) => v !== null && v !== undefined && v > 0)
-      .sort((a, b) => b[1] - a[1]);
-    const cutoff = Math.max(1, Math.ceil(entries.length * percentile));
-    return new Set(entries.slice(0, cutoff).map(([shopId]) => shopId));
+  function percentileRank(sortedDesc, shopId) {
+    const idx = sortedDesc.findIndex(([id]) => id === shopId);
+    if (idx === -1) return null;
+    return 1 - idx / Math.max(1, sortedDesc.length - 1); // 1 = cao nhất, 0 = thấp nhất
   }
 
   async function renderKpiRiskyTable() {
@@ -402,11 +405,8 @@ const OverallTab = (() => {
       return;
     }
 
-    // Bỏ dòng "Total" — chỉ xét từng seller
     const sellers = rmKpi.rows.filter(r => r[K.shop_id] && r[K.shop_id] !== "Total");
 
-    // "target cao nhất ở TỪNG metric riêng lẻ" — seller phải nằm top 30% theo
-    // target ở CẢ 5 metric: AD.GMV, Paid ads, Offsite, Content ADO, Winning ADO
     const targetFields = {
       ad_gmv: K.target_adgmv_vnd,
       paid_ads: K.target_paid_ads_spending_vnd,
@@ -414,24 +414,32 @@ const OverallTab = (() => {
       content_ado: K.target_content_ado_contribution,
       winning_sku_ado: K.target_winning_sku_ado_coverage,
     };
-    const topSets = {};
+
+    // percentile rank riêng từng metric (bỏ qua null/0)
+    const rankMaps = {};
     Object.entries(targetFields).forEach(([key, col]) => {
-      const entries = sellers
+      const sorted = sellers
         .map(r => [r[K.shop_id], DataLoader.cleanNumber(r[col])])
         .filter(([, v]) => v !== null && v > 0)
         .sort((a, b) => b[1] - a[1]);
-      const cutoff = Math.max(1, Math.ceil(entries.length * TOP_TARGET_PERCENTILE));
-      topSets[key] = new Set(entries.slice(0, cutoff).map(([id]) => id));
+      rankMaps[key] = sorted;
     });
 
-    const results = [];
-    sellers.forEach(r => {
+    // composite target score = trung bình percentile các metric có dữ liệu
+    const composite = sellers.map(r => {
       const shopId = r[K.shop_id];
-      const isTop = Object.values(topSets).every(set => set.has(shopId));
-      if (!isTop) return;
+      const percentiles = Object.keys(targetFields)
+        .map(key => percentileRank(rankMaps[key], shopId))
+        .filter(p => p !== null);
+      const avg = percentiles.length ? percentiles.reduce((a, b) => a + b, 0) / percentiles.length : null;
+      return { shopId, row: r, targetCompositeRank: avg };
+    }).filter(c => c.targetCompositeRank !== null);
 
-      // Công thức đã xác nhận: score = Σ (%reach target metric × weightage),
-      // dùng thẳng pct_*_achieved đã tính sẵn trong sheet.
+    composite.sort((a, b) => b.targetCompositeRank - a.targetCompositeRank);
+    const cutoff = Math.max(1, Math.ceil(composite.length * TOP_TARGET_PERCENTILE));
+    const topByTarget = composite.slice(0, cutoff);
+
+    const results = topByTarget.map(({ shopId, row: r }) => {
       const pctByMetric = {
         ad_gmv:          DataLoader.cleanNumber(r[K.pct_gmv_achieved]),
         paid_ads:        DataLoader.cleanNumber(r[K.pct_paid_ads_achieved]),
@@ -439,19 +447,17 @@ const OverallTab = (() => {
         content_ado:     DataLoader.cleanNumber(r[K.pct_content_ado_achieved]),
         winning_sku_ado: DataLoader.cleanNumber(r[K.pct_winning_ado_achieved]),
       };
-
       const { weightedScore, breakdown } = KpiEngine.computeWeightedScore(pctByMetric);
       const weakest = KpiEngine.weakestMetric(breakdown);
-
-      results.push({
+      return {
         seller: r[K.username], shopId, rm: r[K.rm], groupCat: r[K.group_cat],
         targetAdSales: DataLoader.cleanNumber(r[K.target_adgmv_vnd]),
         score: weightedScore, weakest,
-      });
+      };
     });
 
     if (results.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="8" class="empty-row">Không có seller nào nằm top ${(TOP_TARGET_PERCENTILE*100).toFixed(0)}% target ở CẢ 5 metric (ADG, Paid ads, Offsite, Content ADO, Winning ADO)</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8" class="empty-row">Không có seller nào nằm top ${(TOP_TARGET_PERCENTILE*100).toFixed(0)}% target (composite 5 metric)</td></tr>`;
       return;
     }
 
@@ -535,6 +541,73 @@ const OverallTab = (() => {
     skuTbody.innerHTML = skuRows.length
       ? skuRows.map(r => `<tr><td>${r.itemId}</td><td>${r.lm.toLocaleString("en-US",{maximumFractionDigits:0})}</td><td class="tag-risk">${(r.momPct*100).toFixed(1)}%</td></tr>`).join("")
       : `<tr><td colspan="3" class="empty-row">Không có SKU nào drop DUV MoM</td></tr>`;
+  }
+
+  // ============================================================
+  // Video ADO Alert & Livestream ADO Alert — Top 10 seller có ADO M-1 cao
+  // nhất nhưng đang drop MoM. Tháng M/M-1 xác định theo start_date (đã
+  // xác nhận), không dùng cột "month" (số thứ tự) để tránh lệch nếu 2 seller
+  // báo cáo lệch kỳ.
+  // ============================================================
+  async function renderContentChannelAlerts() {
+    const seller = await DataLoader.loadCsv("raw_seller_performance");
+    const videoTbody = document.querySelector("#videoAdoAlertTable tbody");
+    const liveTbody = document.querySelector("#livestreamAdoAlertTable tbody");
+    if (!videoTbody || !liveTbody) return;
+
+    if (!seller.ok || seller.rows.length === 0) {
+      videoTbody.innerHTML = `<tr><td colspan="3" class="empty-row">Chờ raw_seller_performance</td></tr>`;
+      liveTbody.innerHTML = `<tr><td colspan="3" class="empty-row">Chờ raw_seller_performance</td></tr>`;
+      return;
+    }
+
+    // Nhóm theo tháng thật (năm-tháng) rút ra từ start_date, không dùng cột "month" thô
+    const monthKey = (r) => {
+      const d = DataLoader.parseDate(r[C.start_date]);
+      return d ? `${d.getFullYear()}-${d.getMonth()}` : null;
+    };
+    const monthKeys = [...new Set(seller.rows.map(monthKey).filter(Boolean))]
+      .sort((a, b) => {
+        const [ay, am] = a.split("-").map(Number), [by, bm] = b.split("-").map(Number);
+        return ay !== by ? ay - by : am - bm;
+      });
+    const latest = monthKeys[monthKeys.length - 1];
+    const prev = monthKeys[monthKeys.length - 2];
+
+    function sumByShop(month, col) {
+      const map = {};
+      seller.rows.filter(r => monthKey(r) === month).forEach(r => {
+        const val = DataLoader.cleanNumber(r[col]) || 0;
+        const prevEntry = map[r[C.shop_id]];
+        map[r[C.shop_id]] = { value: (prevEntry ? prevEntry.value : 0) + val, name: r[C.seller_name] };
+      });
+      return map;
+    }
+
+    function buildAlertRows(col) {
+      const curMap = sumByShop(latest, col);
+      const lmMap = prev ? sumByShop(prev, col) : {};
+      return Object.keys(lmMap)
+        .map(shopId => {
+          const lm = lmMap[shopId].value;
+          const cur = curMap[shopId] ? curMap[shopId].value : 0;
+          const gapPct = lm ? (cur - lm) / lm : null;
+          return { seller: lmMap[shopId].name, shopId, lm, gapPct };
+        })
+        .filter(r => r.lm > 0 && r.gapPct !== null && r.gapPct < 0)
+        .sort((a, b) => b.lm - a.lm)
+        .slice(0, 10);
+    }
+
+    const videoRows = buildAlertRows(C.ado_from_seller_video);
+    videoTbody.innerHTML = videoRows.length
+      ? videoRows.map(r => `<tr><td>${r.seller}</td><td>${r.lm.toLocaleString("en-US",{maximumFractionDigits:1})}</td><td class="tag-risk">${(r.gapPct*100).toFixed(1)}%</td></tr>`).join("")
+      : `<tr><td colspan="3" class="empty-row">Không có seller nào drop Video ADO MoM</td></tr>`;
+
+    const liveRows = buildAlertRows(C.ado_from_livestream);
+    liveTbody.innerHTML = liveRows.length
+      ? liveRows.map(r => `<tr><td>${r.seller}</td><td>${r.lm.toLocaleString("en-US",{maximumFractionDigits:1})}</td><td class="tag-risk">${(r.gapPct*100).toFixed(1)}%</td></tr>`).join("")
+      : `<tr><td colspan="3" class="empty-row">Không có seller nào drop Livestream ADO MoM</td></tr>`;
   }
 
   function setSyncStatus(state) {

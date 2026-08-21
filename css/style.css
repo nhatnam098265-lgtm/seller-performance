@@ -135,6 +135,7 @@ h1,h2,h3{margin:0;font-weight:700;letter-spacing:-.01em}
 
 .risky-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
 .risky-grid.two-col{grid-template-columns:repeat(2,1fr)}
+@media (max-width:1400px){.risky-grid{grid-template-columns:repeat(3,1fr)}}
 @media (max-width:1100px){.risky-grid{grid-template-columns:1fr}}
 
 .metric-tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}

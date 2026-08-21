@@ -16,6 +16,47 @@ const DataLoader = (() => {
     return isNaN(n) ? null : n;
   }
 
+  /**
+   * BUG GỐC gây mất data ở nhiều bảng (OOS Alert, Deep-dive, MSP tab...):
+   * cột ngày (start_date/end_date) trong CSV export ra lẫn lộn giữa định
+   * dạng ngày thường ("8/1/2026") và Excel/Sheets serial number ("46235" —
+   * cùng là 1 ngày nhưng do lỗi định dạng cell khi publish). new Date("46235")
+   * parse sai/NaN nên mọi logic lọc "tháng mới nhất" theo ngày đều fail âm
+   * thầm. Hàm này nhận cả 2 dạng.
+   */
+  function parseDate(v) {
+    if (v === null || v === undefined || v === "") return null;
+    const s = String(v).trim();
+    if (/^\d+(\.\d+)?$/.test(s)) {
+      const serial = parseFloat(s);
+      if (serial > 20000 && serial < 90000) { // sanity range ~1954–2146
+        const epoch = Date.UTC(1899, 11, 30);
+        return new Date(epoch + serial * 86400000);
+      }
+    }
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  /**
+   * Lọc rows về đúng "kỳ mới nhất" theo 1 cột ngày (vd end_date), chịu được
+   * cả 2 định dạng nhờ parseDate(). Dùng chung cho mọi tab thay vì mỗi nơi
+   * tự viết `new Date(...)` riêng (nguồn gốc bug).
+   */
+  function filterLatestByDate(rows, dateCol) {
+    let latest = null;
+    rows.forEach(r => {
+      const d = parseDate(r[dateCol]);
+      if (d && (!latest || d > latest)) latest = d;
+    });
+    if (!latest) return { rows, latestDate: null };
+    const filtered = rows.filter(r => {
+      const d = parseDate(r[dateCol]);
+      return d && d.getTime() === latest.getTime();
+    });
+    return { rows: filtered, latestDate: latest };
+  }
+
   async function loadCsv(key, { force = false } = {}) {
     const url = CONFIG.SOURCES[key];
     if (!url) {
@@ -248,5 +289,5 @@ const DataLoader = (() => {
     }
   }
 
-  return { loadCsv, loadAll, loadTargetPersonal, loadMspTracking, loadProgramTracking, cleanNumber, _cache: cache };
+  return { loadCsv, loadAll, loadTargetPersonal, loadMspTracking, loadProgramTracking, cleanNumber, parseDate, filterLatestByDate, _cache: cache };
 })();

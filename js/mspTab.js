@@ -17,9 +17,10 @@ const MspTab = (() => {
   // EOMONTH(end_date, 0) = ngày cuối tháng của end_date -> lấy ra tổng số
   // ngày trong tháng đó (đã xác nhận: dùng số ngày CẢ THÁNG, không phải số
   // ngày MTD đã trôi qua, khác với "days" (elapsed) dùng ở Tab I/II).
+  // Dùng DataLoader.parseDate để chịu được cả dòng end_date bị lỗi Excel serial number.
   function daysInMonthOf(dateStr) {
-    const d = new Date(dateStr);
-    if (isNaN(d)) return null;
+    const d = DataLoader.parseDate(dateStr);
+    if (!d) return null;
     return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
   }
 
@@ -55,9 +56,7 @@ const MspTab = (() => {
     }
     const C = CONFIG.COLUMNS_SELLER_PERF;
 
-    let latestEnd = null;
-    seller.rows.forEach(r => { const d = new Date(r[C.end_date]); if (!isNaN(d) && (!latestEnd || d > latestEnd)) latestEnd = d; });
-    const current = seller.rows.filter(r => new Date(r[C.end_date]).getTime() === (latestEnd ? latestEnd.getTime() : NaN));
+    const current = DataLoader.filterLatestByDate(seller.rows, C.end_date).rows;
     const gmvByShop = {};
     current.forEach(r => {
       const adg = DataLoader.cleanNumber(r[C.adgmv]) || 0;
@@ -148,9 +147,7 @@ const MspTab = (() => {
       voucherByShop[r[I.shop_id]] = (voucherByShop[r[I.shop_id]] || 0) + v;
     });
 
-    let latestEnd = null;
-    seller.rows.forEach(r => { const d = new Date(r[C.end_date]); if (!isNaN(d) && (!latestEnd || d > latestEnd)) latestEnd = d; });
-    const current = seller.rows.filter(r => new Date(r[C.end_date]).getTime() === (latestEnd ? latestEnd.getTime() : NaN));
+    const current = DataLoader.filterLatestByDate(seller.rows, C.end_date).rows;
 
     const packages = interest.rows
       .map(r => ({
